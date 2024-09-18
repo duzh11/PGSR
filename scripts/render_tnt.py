@@ -32,6 +32,9 @@ from scene.app_model import AppModel
 import trimesh, copy
 from collections import deque
 
+import torchvision
+import utils.vis_utils as VISUils
+
 def clean_mesh(mesh, min_len=1000):
     with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Debug) as cm:
         triangle_clusters, cluster_n_triangles, cluster_area = (mesh.cluster_connected_triangles())
@@ -58,10 +61,16 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
     render_depth_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders_depth")
     render_normal_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders_normal")
 
+    render_mask_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders_mask")
+    render_depth2plane_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders_depth2plane")
+   
     makedirs(gts_path, exist_ok=True)
     makedirs(render_path, exist_ok=True)
     makedirs(render_depth_path, exist_ok=True)
     makedirs(render_normal_path, exist_ok=True)
+
+    makedirs(render_mask_path, exist_ok=True)
+    makedirs(render_depth2plane_path, exist_ok=True)
 
     depths_tsdf_fusion = []
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
@@ -70,26 +79,44 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
         rendering = out["render"].clamp(0.0, 1.0)
         _, H, W = rendering.shape
 
+        # mask
+        mask = out['rendered_alpha']
+        torchvision.utils.save_image(mask, os.path.join(render_mask_path, view.image_name + ".jpg"))
+
+        #depth
         depth = out["plane_depth"].squeeze()
         depth_tsdf = depth.clone()
         depth = depth.detach().cpu().numpy()
-        depth_i = (depth - depth.min()) / (depth.max() - depth.min() + 1e-20)
-        depth_i = (depth_i * 255).clip(0, 255).astype(np.uint8)
-        depth_color = cv2.applyColorMap(depth_i, cv2.COLORMAP_JET)
+        # depth_i = (depth - depth.min()) / (depth.max() - depth.min() + 1e-20)
+        # depth_i = (depth_i * 255).clip(0, 255).astype(np.uint8)
+        # depth_color = cv2.applyColorMap(depth_i, cv2.COLORMAP_JET)
 
+        depth_color = VISUils.apply_depth_colormap(out["plane_depth"][0,...,None], mask[0,...,None]).detach()
+        torchvision.utils.save_image(depth_color.permute(2,0,1), os.path.join(render_depth_path, view.image_name + ".jpg"))
+
+        # plane depth
+        depth2plane_color = VISUils.apply_depth_colormap(out["rendered_distance"][0,...,None], mask[0,...,None]).detach()
+        torchvision.utils.save_image(depth2plane_color.permute(2,0,1), os.path.join(render_depth2plane_path, view.image_name + ".jpg"))
+        
+        # normal
         normal = out["rendered_normal"].permute(1,2,0)
         normal = normal/(normal.norm(dim=-1, keepdim=True)+1.0e-8)
-        normal = normal.detach().cpu().numpy()
-        normal = ((normal+1) * 127.5).astype(np.uint8).clip(0, 255)
+        # normal = normal.detach().cpu().numpy()
+        # normal = ((normal+1) * 127.5).astype(np.uint8).clip(0, 255)
+        normal_w = (normal @ (view.world_view_transform[:3,:3].T)).permute(2,0,1)
+        normal_w = ((normal_w+1)/2).clip(0, 1)
+        torchvision.utils.save_image(normal_w, os.path.join(render_normal_path, view.image_name + ".jpg"))
 
         if name == 'test':
-            torchvision.utils.save_image(gt.clamp(0.0, 1.0), os.path.join(gts_path, view.image_name + ".png"))
-            torchvision.utils.save_image(rendering, os.path.join(render_path, view.image_name + ".png"))
+            torchvision.utils.save_image(gt.clamp(0.0, 1.0), os.path.join(gts_path, view.image_name + ".jpg"))
+            torchvision.utils.save_image(rendering, os.path.join(render_path, view.image_name + ".jpg"))
         else:
+            torchvision.utils.save_image(gt.clamp(0.0, 1.0), os.path.join(gts_path, view.image_name + ".jpg"))
+            
             rendering_np = (rendering.permute(1,2,0).clamp(0,1)[:,:,[2,1,0]]*255).detach().cpu().numpy().astype(np.uint8)
             cv2.imwrite(os.path.join(render_path, view.image_name + ".jpg"), rendering_np)
-        cv2.imwrite(os.path.join(render_depth_path, view.image_name + ".jpg"), depth_color)
-        cv2.imwrite(os.path.join(render_normal_path, view.image_name + ".jpg"), normal)
+        # cv2.imwrite(os.path.join(render_depth_path, view.image_name + ".jpg"), depth_color)
+        # cv2.imwrite(os.path.join(render_normal_path, view.image_name + ".jpg"), normal)
 
         if use_depth_filter:
             view_dir = torch.nn.functional.normalize(view.get_rays(), p=2, dim=-1)
@@ -199,26 +226,27 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
             max_dis = np.max(bounds[:,1]-bounds[:,0])
             voxel_size = max_dis / 2048.0
         print(f"TSDF voxel_size {voxel_size}")
-        volume = o3d.pipelines.integration.ScalableTSDFVolume(
-        voxel_length=voxel_size,
-        sdf_trunc=4.0*voxel_size,
-        color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8)
+        # volume = o3d.pipelines.integration.ScalableTSDFVolume(
+        # voxel_length=voxel_size,
+        # sdf_trunc=4.0*voxel_size,
+        # color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8)
+        volume = None
 
         if not skip_train:
             render_set(dataset.model_path, "train", scene.loaded_iter, scene.getTrainCameras(), scene, gaussians, pipeline, background, 
                        max_depth=max_depth, volume=volume, use_depth_filter=use_depth_filter)
-            print(f"extract_triangle_mesh")
-            mesh = volume.extract_triangle_mesh()
-            path = os.path.join(dataset.model_path, "mesh")
-            os.makedirs(path, exist_ok=True)
+            # print(f"extract_triangle_mesh")
+            # mesh = volume.extract_triangle_mesh()
+            # path = os.path.join(dataset.model_path, "mesh")
+            # os.makedirs(path, exist_ok=True)
             
-            o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion.ply"), mesh, 
-                                       write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
-            mesh = clean_mesh(mesh)
-            mesh.remove_unreferenced_vertices()
-            mesh.remove_degenerate_triangles()
-            o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion_post.ply"), mesh, 
-                                       write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
+            # o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion.ply"), mesh, 
+            #                            write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
+            # mesh = clean_mesh(mesh)
+            # mesh.remove_unreferenced_vertices()
+            # mesh.remove_degenerate_triangles()
+            # o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion_post.ply"), mesh, 
+            #                            write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
 
         if not skip_test:
             render_set(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), scene, gaussians, pipeline, background)

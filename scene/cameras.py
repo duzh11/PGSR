@@ -61,7 +61,7 @@ class Camera(nn.Module):
         self.preload_img = preload_img
         self.ncc_scale = ncc_scale
         if self.preload_img:
-            image = Image.open(self.image_path)
+            image = Image.open(self.image_path).convert('RGB')
             resized_image = image.resize((image_width, image_height))
             resized_image_rgb = PILtoTorch(resized_image)
             if ncc_scale != 1.0:
@@ -104,7 +104,7 @@ class Camera(nn.Module):
         if self.preload_img:
             return self.original_image.cuda(), self.image_gray.cuda()
         else:
-            image = Image.open(self.image_path)
+            image = Image.open(self.image_path).convert('RGB')
             resized_image = image.resize((self.image_width, self.image_height))
             resized_image_rgb = PILtoTorch(resized_image)
             if self.ncc_scale != 1.0:

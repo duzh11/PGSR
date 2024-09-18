@@ -154,14 +154,17 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     rendered_alpha = out_all_map[3:4, ]
     rendered_distance = out_all_map[4:5, ]
     
+    # plane_depth: distance to the corresponding point on the plane
+    # rendered_distance: distance to the corresponding plane
     return_dict =  {"render": rendered_image,
+                    "rendered_alpha": rendered_alpha,
                     "viewspace_points": screenspace_points,
                     "viewspace_points_abs": screenspace_points_abs,
                     "visibility_filter" : radii > 0,
                     "radii": radii,
                     "out_observe": out_observe,
                     "rendered_normal": rendered_normal,
-                    "plane_depth": plane_depth,
+                    "plane_depth": plane_depth, 
                     "rendered_distance": rendered_distance
                     }
     

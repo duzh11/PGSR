@@ -4,3 +4,6 @@ plyfile
 opencv-python
 lpips
 trimesh
+
+submodules/diff-plane-rasterization
+submodules/simple-knn
