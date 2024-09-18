@@ -16,9 +16,10 @@ python render.py -m out_path --max_depth 10.0 --voxel_size 0.01
 # scan97, scan105, scan106, scan110, scan114, scan118, scan122
 
 python train.py -s ../../Data/DTU/scan24 -m ../exps/full/DTU/scan24 -r 2
+python scripts/render_dtu.py -s ../../Data/DTU/scan24 -m ../exps/full/DTU/scan24 -r 2
+python scripts/evaluate_dtu_mesh.py --DTU ../../Data/Offical_DTU_Dataset -s ../../Data/DTU/scan24 -m ../exps/full/DTU/scan24
 
 python metrics.py -m ../exps/full/DTU/scan24 -f train
-
 
 # +++++++++ TNT +++++++++ # 
 # Barn, Caterpillar, Courthouse, Ignatius, Meetingroom, Truck

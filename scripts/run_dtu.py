@@ -16,10 +16,9 @@ for scene in scenes:
     print(cmd)
     os.system(cmd)
 
-    # cmd = f'CUDA_VISIBLE_DEVICES={gpu_id} python scripts/dtu_eval.py --data {out_base_path}/scan{scene}/mesh/tsdf_fusion.ply \
-    #     --scan {scene} --mode mesh --dataset_dir {eval_path} --vis_out_dir {out_base_path}/scan{scene}/mesh'
-    # print(cmd)
-    # os.system(cmd)
+    cmd = f'CUDA_VISIBLE_DEVICES={gpu_id} python scripts/evaluate_dtu_mesh.py --DTU {eval_path} -s {data_base_path}/scan{scene} -m {out_base_path}/scan{scene}'
+    print(cmd)
+    os.system(cmd)
 
     cmd = f'CUDA_VISIBLE_DEVICES={gpu_id} python metrics.py -m {out_base_path}/scan{scene} -f train'
     print(cmd)

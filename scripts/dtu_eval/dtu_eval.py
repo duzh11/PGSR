@@ -1,10 +1,11 @@
+# adapted from https://github.com/jzhangbs/DTUeval-python
 import numpy as np
 import open3d as o3d
 import sklearn.neighbors as skln
 from tqdm import tqdm
 from scipy.io import loadmat
 import multiprocessing as mp
-import argparse, os, csv
+import argparse
 
 def sample_single_tri(input_):
     n1, n2, v1, v2, tri_vert = input_
@@ -36,6 +37,7 @@ if __name__ == '__main__':
     parser.add_argument('--patch_size', type=float, default=60)
     parser.add_argument('--max_dist', type=float, default=20)
     parser.add_argument('--visualize_threshold', type=float, default=10)
+    parser.add_argument('--suffix_name', type=str, default=None)
     args = parser.parse_args()
 
     thresh = args.downsample_density
@@ -43,40 +45,7 @@ if __name__ == '__main__':
         pbar = tqdm(total=9)
         pbar.set_description('read data mesh')
         data_mesh = o3d.io.read_triangle_mesh(args.data)
-        data_mesh.remove_unreferenced_vertices()
-        data_mesh.remove_degenerate_triangles()
-        
-        # align points cloud
-        p_pcd = o3d.geometry.PointCloud()
-        p_pcd.points = o3d.utility.Vector3dVector(np.asarray(data_mesh.vertices))
-        gt_pcd = o3d.io.read_point_cloud(f'{args.dataset_dir}/Points/stl/stl{args.scan:03}_total.ply')
-        reg = o3d.pipelines.registration.registration_icp(
-            p_pcd,
-            gt_pcd,
-            10.0,
-            np.identity(4),
-            o3d.pipelines.registration.TransformationEstimationPointToPoint(True),
-            o3d.pipelines.registration.ICPConvergenceCriteria(1e-6, 50),
-        )
-        reg2 = o3d.pipelines.registration.registration_icp(
-            p_pcd,
-            gt_pcd,
-            2.5,
-            reg.transformation,
-            o3d.pipelines.registration.TransformationEstimationPointToPoint(True),
-            o3d.pipelines.registration.ICPConvergenceCriteria(1e-6, 50),
-        )
-        reg3 = o3d.pipelines.registration.registration_icp(
-            p_pcd,
-            gt_pcd,
-            0.5,
-            reg2.transformation,
-            o3d.pipelines.registration.TransformationEstimationPointToPoint(True),
-            o3d.pipelines.registration.ICPConvergenceCriteria(1e-6, 50),
-        )
-        data_mesh.transform(reg3.transformation)
-        # o3d.io.write_triangle_mesh("output_mesh.ply", data_mesh)
-        
+
         vertices = np.asarray(data_mesh.vertices)
         triangles = np.asarray(data_mesh.triangles)
         tri_vert = vertices[triangles]
@@ -101,10 +70,7 @@ if __name__ == '__main__':
 
         new_pts = np.concatenate(new_pts, axis=0)
         data_pcd = np.concatenate([vertices, new_pts], axis=0)
-        
-        point_cloud = o3d.geometry.PointCloud()
-        point_cloud.points = o3d.utility.Vector3dVector(data_mesh.vertices)
-        o3d.io.write_point_cloud("output_point_cloud.pcd", point_cloud)
+    
     elif args.mode == 'pcd':
         pbar = tqdm(total=8)
         pbar.set_description('read data pcd')
@@ -179,23 +145,34 @@ if __name__ == '__main__':
     data_alpha = dist_d2s.clip(max=vis_dist) / vis_dist
     data_color[ np.where(inbound)[0][grid_inbound][in_obs] ] = R * data_alpha + W * (1-data_alpha)
     data_color[ np.where(inbound)[0][grid_inbound][in_obs][dist_d2s[:,0] >= max_dist] ] = G
-    write_vis_pcd(f'{args.vis_out_dir}/vis_{args.scan:03}_d2s.ply', data_down, data_color)
+    if args.suffix_name:
+        write_vis_pcd(f'{args.vis_out_dir}/vis_{args.scan:03}_d2s_{args.suffix_name}.ply', data_down, data_color)
+    else:
+        write_vis_pcd(f'{args.vis_out_dir}/vis_{args.scan:03}_d2s.ply', data_down, data_color)
+
     stl_color = np.tile(B, (stl.shape[0], 1))
     stl_alpha = dist_s2d.clip(max=vis_dist) / vis_dist
     stl_color[ np.where(above)[0] ] = R * stl_alpha + W * (1-stl_alpha)
     stl_color[ np.where(above)[0][dist_s2d[:,0] >= max_dist] ] = G
-    write_vis_pcd(f'{args.vis_out_dir}/vis_{args.scan:03}_s2d.ply', stl, stl_color)
+    if args.suffix_name:
+        write_vis_pcd(f'{args.vis_out_dir}/vis_{args.scan:03}_s2d_{args.suffix_name}.ply', stl, stl_color)
+    else:
+        write_vis_pcd(f'{args.vis_out_dir}/vis_{args.scan:03}_s2d.ply', stl, stl_color)
 
     pbar.update(1)
     pbar.set_description('done')
     pbar.close()
     over_all = (mean_d2s + mean_s2d) / 2
     print(mean_d2s, mean_s2d, over_all)
-
-    out_file = os.path.join(args.vis_out_dir, 'result.csv')
-    with open(out_file, 'w', newline='') as f:
-        writer = csv.writer(f)
-        name = ['mean_d2s','mean_s2d','over_all']
-        data = [mean_d2s, mean_s2d, over_all]
-        writer.writerow(name)
-        writer.writerow(data)
+    
+    import json
+    if args.suffix_name:
+        result_file = f'{args.vis_out_dir}/results_{args.suffix_name}.json'
+    else:
+        result_file = f'{args.vis_out_dir}/results.json'
+    with open(result_file, 'w') as fp:
+        json.dump({
+            'mean_d2s': mean_d2s,
+            'mean_s2d': mean_s2d,
+            'overall': over_all,
+        }, fp, indent=True)

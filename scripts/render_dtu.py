@@ -31,6 +31,7 @@ import open3d as o3d
 from scene.app_model import AppModel
 import trimesh, copy
 from collections import deque
+from utils.mesh_utils import post_process_mesh
 
 import torchvision
 import utils.vis_utils as VISUils
@@ -60,7 +61,7 @@ def transform_dtu_mesh(scene, mesh):
     return cleaned_mesh
 
 def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, background, 
-               app_model=None, max_depth=5.0, volume=None, use_depth_filter=False):
+               app_model=None, max_depth=3.0, volume=None, use_depth_filter=False):
     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
     render_depth_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders_depth")
@@ -78,6 +79,7 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
     makedirs(render_depth2plane_path, exist_ok=True)
 
     depths_tsdf_fusion = []
+    mask_lis = []
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
         gt, _ = view.get_image()
         out = render(view, gaussians, pipeline, background, app_model=app_model)
@@ -87,6 +89,7 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
         # mask
         mask = out['rendered_alpha']
         torchvision.utils.save_image(mask, os.path.join(render_mask_path, view.image_name + ".jpg"))
+        mask_lis.append(mask.detach().squeeze())
 
         # depth 
         depth = out["plane_depth"].squeeze()
@@ -186,10 +189,12 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
                 d_mask_all = (d_mask_all.sum(0) > 1)
                 ref_depth[~d_mask_all] = 0
 
-            if view.mask is not None:
-                ref_depth[view.mask] = 0
-            else:
-                ref_depth[ref_depth>max_depth] = 0
+            # if view.mask is not None:
+            #     ref_depth[view.mask] = 0
+            # else:
+            #     ref_depth[ref_depth>max_depth] = 0
+
+            ref_depth[mask_lis[idx]<0.5] = 0
 
             ref_depth = ref_depth.detach().cpu().numpy()
             
@@ -220,7 +225,7 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
         print(f"TSDF voxel_size {voxel_size}")
         volume = o3d.pipelines.integration.ScalableTSDFVolume(
         voxel_length=voxel_size,
-        sdf_trunc=4.0*voxel_size,
+        sdf_trunc=0.016,
         color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8)
 
         if not skip_train:
@@ -228,13 +233,19 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
                        max_depth=max_depth, volume=volume, use_depth_filter=use_depth_filter)
             print(f"extract_triangle_mesh")
             mesh = volume.extract_triangle_mesh()
-            mesh = transform_dtu_mesh(scene, mesh)
+            # mesh = transform_dtu_mesh(scene, mesh) # post-processing code of pgsr 
 
             path = os.path.join(dataset.model_path, "mesh")
             os.makedirs(path, exist_ok=True)
             
             o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion_womask.ply"), mesh, 
                                        write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
+            
+            # post-processing code of 2dgs
+            mesh_post = post_process_mesh(mesh, cluster_to_keep=1)
+            o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion_womask_post.ply"), mesh, 
+                                       write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
+
         if not skip_test:
             render_set(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), scene, gaussians, pipeline, background)
 
@@ -248,7 +259,7 @@ if __name__ == "__main__":
     parser.add_argument("--skip_train", action="store_true")
     parser.add_argument("--skip_test", action="store_true")
     parser.add_argument("--quiet", action="store_true")
-    parser.add_argument("--max_depth", default=5.0, type=float)
+    parser.add_argument("--max_depth", default=3.0, type=float)
     parser.add_argument("--voxel_size", default=0.002, type=float)
     parser.add_argument("--use_depth_filter", action="store_true")
 

@@ -72,7 +72,7 @@ class Camera(nn.Module):
             self.image_gray = resized_image_gray.clamp(0.0, 1.0).to(self.data_device)
 
             # for DTU
-            mask_path = image_path.replace("images", "mask")[:-10]
+            mask_path = image_path.replace("images", "mask")[:-8]
             mask_path = mask_path + image_path[-7:]
             if os.path.exists(mask_path):
                 self.mask = torch.tensor(cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)).to(self.data_device).squeeze()/255
