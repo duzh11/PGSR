@@ -31,6 +31,7 @@ import open3d as o3d
 from scene.app_model import AppModel
 import trimesh, copy
 from collections import deque
+from utils.mesh_utils import post_process_mesh
 
 import torchvision
 import utils.vis_utils as VISUils
@@ -115,6 +116,7 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
             
             rendering_np = (rendering.permute(1,2,0).clamp(0,1)[:,:,[2,1,0]]*255).detach().cpu().numpy().astype(np.uint8)
             cv2.imwrite(os.path.join(render_path, view.image_name + ".jpg"), rendering_np)
+        
         # cv2.imwrite(os.path.join(render_depth_path, view.image_name + ".jpg"), depth_color)
         # cv2.imwrite(os.path.join(render_normal_path, view.image_name + ".jpg"), normal)
 
@@ -203,7 +205,7 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
                 pose)
 
 def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool,
-                 max_depth : float, voxel_size : float, use_depth_filter : bool):
+                 max_depth : float, voxel_size : float, sdf_trunc : float, use_depth_filter : bool):
     with torch.no_grad():
         gaussians = GaussianModel(dataset.sh_degree)
         scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False)
@@ -226,28 +228,26 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
             max_dis = np.max(bounds[:,1]-bounds[:,0])
             voxel_size = max_dis / 2048.0
         print(f"TSDF voxel_size {voxel_size}")
-        # volume = o3d.pipelines.integration.ScalableTSDFVolume(
-        # voxel_length=voxel_size,
-        # sdf_trunc=4.0*voxel_size,
-        # color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8)
-        volume = None
+        volume = o3d.pipelines.integration.ScalableTSDFVolume(
+            voxel_length=voxel_size,
+            sdf_trunc=sdf_trunc,
+            color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8)
 
         if not skip_train:
             render_set(dataset.model_path, "train", scene.loaded_iter, scene.getTrainCameras(), scene, gaussians, pipeline, background, 
                        max_depth=max_depth, volume=volume, use_depth_filter=use_depth_filter)
-            # print(f"extract_triangle_mesh")
-            # mesh = volume.extract_triangle_mesh()
-            # path = os.path.join(dataset.model_path, "mesh")
-            # os.makedirs(path, exist_ok=True)
-            
-            # o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion.ply"), mesh, 
-            #                            write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
-            # mesh = clean_mesh(mesh)
-            # mesh.remove_unreferenced_vertices()
-            # mesh.remove_degenerate_triangles()
-            # o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion_post.ply"), mesh, 
-            #                            write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
+            print(f"extract_triangle_mesh")
+            mesh = volume.extract_triangle_mesh()
 
+            path = os.path.join(dataset.model_path, "mesh")
+            os.makedirs(path, exist_ok=True)
+            
+            o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion.ply"), mesh, 
+                                       write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
+            # post-processing code of 2dgs
+            mesh_post = post_process_mesh(mesh, cluster_to_keep=1)
+            o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion_womask_post.ply"), mesh, 
+                                       write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
         if not skip_test:
             render_set(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), scene, gaussians, pipeline, background)
 
@@ -263,6 +263,7 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--max_depth", default=20.0, type=float)
     parser.add_argument("--voxel_size", default=0.002, type=float)
+    parser.add_argument("--sdf_trunc", default=0.008, type=float)
     parser.add_argument("--use_depth_filter", action="store_true")
 
     args = get_combined_args(parser)
@@ -271,4 +272,4 @@ if __name__ == "__main__":
     # Initialize system state (RNG)
     safe_state(args.quiet)
     print(f"multi_view_num {model.multi_view_num}")
-    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.max_depth, args.voxel_size, args.use_depth_filter)
+    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.max_depth, args.voxel_size, args.sdf_trunc, args.use_depth_filter)
