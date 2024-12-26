@@ -1,6 +1,7 @@
 import os
 
-scenes = ['Courthouse', 'Truck', 'Caterpillar', 'Barn', 'Meetingroom', 'Ignatius']
+# scenes = ['Courthouse', 'Truck', 'Caterpillar', 'Barn', 'Meetingroom', 'Ignatius']
+scenes = ['Truck', 'Meetingroom']
 tnt_360_scenes = ['Barn', 'Caterpillar', 'Ignatius', 'Truck']
 tnt_large_scenes = ['Meetingroom', 'Courthouse']
 
@@ -17,16 +18,16 @@ for id, scene in enumerate(scenes):
     # print(cmd)
     # os.system(cmd)
 
-    # cmd = f'CUDA_VISIBLE_DEVICES={gpu_id} python scripts/render_tnt.py -m {out_base_path}/{scene} -r2 --eval --use_depth_filter'
-    # if scene in tnt_360_scenes:
-    #     cmd += ' --voxel_size 0.004 --sdf_trunc 0.016 --max_depth 3.0'
-    # elif scene in tnt_large_scenes:
-    #     cmd += ' --voxel_size 0.006 --sdf_trunc 0.024 --max_depth 4.5'
+    # cmd = f'CUDA_VISIBLE_DEVICES={gpu_id} python scripts/render_tnt.py -m {out_base_path}/{scene} -r2 --eval'
+    if scene in tnt_360_scenes:
+        cmd += ' --voxel_size 0.004 --sdf_trunc 0.016 --max_depth 3.0'
+    elif scene in tnt_large_scenes:
+        cmd += ' --voxel_size 0.006 --sdf_trunc 0.024 --max_depth 4.5'
     # print(cmd)
     # os.system(cmd)
 
     # require open3d==0.9
-    cmd = f'CUDA_VISIBLE_DEVICES={gpu_id} python scripts/tnt_eval/run.py --dataset-dir {eval_path}/{scene} --traj-path {data_base_path}/{scene}/{scene}_COLMAP_SfM.log --ply-path {out_base_path}/{scene}/mesh_wo_depth_filter/tsdf_fusion_womask_post.ply --out-dir {out_base_path}/{scene}/mesh_wo_depth_filter'
+    cmd = f'CUDA_VISIBLE_DEVICES={gpu_id} python scripts/tnt_eval/run.py --dataset-dir {eval_path}/{scene} --traj-path {data_base_path}/{scene}/{scene}_COLMAP_SfM.log --ply-path {out_base_path}/{scene}/mesh_wo_depth_filter/tsdf_fusion_womask_post.ply'
     print(cmd)
     os.system(cmd)
 
