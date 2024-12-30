@@ -160,14 +160,14 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
     # cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : int(x.image_name.split('_')[-1]))
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
     
-    js_file = f"{path}/split.json"
+    js_file = f"{path}/train_test_lists.json"
     train_list = None
     test_list = None
     if os.path.exists(js_file):
         with open(js_file) as file:
             meta = json.load(file)
-            train_list = meta["train"]
-            test_list = meta["test"]
+            train_list = [i.split(".")[0] for i in meta["train"]]
+            test_list = [i.split(".")[0] for i in meta["test"]]
             print(f"train_list {len(train_list)}, test_list {len(test_list)}")
 
     if train_list is not None:

@@ -20,8 +20,8 @@ def apply_colormap(image, cmap="viridis"):
 def apply_depth_colormap(
     depth,
     accumulation,
-    near_plane = 2.0,
-    far_plane = 4.0,
+    near_plane = 0.0,
+    far_plane = 5.0,
     cmap="turbo",
 ):
     # near_plane = near_plane or float(torch.min(depth))

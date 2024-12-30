@@ -36,16 +36,6 @@ from utils.mesh_utils import post_process_mesh
 import torchvision
 import utils.vis_utils as VISUils
 
-def clean_mesh(mesh, min_len=1000):
-    with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Debug) as cm:
-        triangle_clusters, cluster_n_triangles, cluster_area = (mesh.cluster_connected_triangles())
-    triangle_clusters = np.asarray(triangle_clusters)
-    cluster_n_triangles = np.asarray(cluster_n_triangles)
-    cluster_area = np.asarray(cluster_area)
-    triangles_to_remove = cluster_n_triangles[triangle_clusters] < min_len
-    mesh_0 = copy.deepcopy(mesh)
-    mesh_0.remove_triangles_by_mask(triangles_to_remove)
-    return mesh_0
 
 def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, background, 
                app_model=None, max_depth=5.0, volume=None, use_depth_filter=False):
@@ -91,6 +81,7 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
         # depth_i = (depth - depth.min()) / (depth.max() - depth.min() + 1e-20)
         # depth_i = (depth_i * 255).clip(0, 255).astype(np.uint8)
         # depth_color = cv2.applyColorMap(depth_i, cv2.COLORMAP_JET)
+        np.savez(os.path.join(render_depth_path, view.image_name + ".npz"), depth)
 
         depth_color = VISUils.apply_depth_colormap(out["plane_depth"][0,...,None], mask[0,...,None]).detach()
         torchvision.utils.save_image(depth_color.permute(2,0,1), os.path.join(render_depth_path, view.image_name + ".jpg"))
@@ -105,6 +96,8 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
         # normal = normal.detach().cpu().numpy()
         # normal = ((normal+1) * 127.5).astype(np.uint8).clip(0, 255)
         normal_w = (normal @ (view.world_view_transform[:3,:3].T)).permute(2,0,1)
+        np.savez(os.path.join(render_normal_path, view.image_name + ".npz"), normal_w.permute(1,2,0).cpu().numpy())
+
         normal_w = ((normal_w+1)/2).clip(0, 1)
         torchvision.utils.save_image(normal_w, os.path.join(render_normal_path, view.image_name + ".jpg"))
 

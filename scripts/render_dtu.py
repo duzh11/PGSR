@@ -243,7 +243,7 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
             
             # post-processing code of 2dgs
             mesh_post = post_process_mesh(mesh, cluster_to_keep=1)
-            o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion_womask_post.ply"), mesh, 
+            o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion_womask_post.ply"), mesh_post, 
                                        write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
 
         if not skip_test:
