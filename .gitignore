@@ -5,3 +5,4 @@ submodules/
 *.pcd
 run_dtu_*.py
 run_tnt_*.py
+wandb/
