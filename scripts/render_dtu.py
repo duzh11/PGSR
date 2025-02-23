@@ -99,11 +99,11 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
         # depth_i = (depth_i * 255).clip(0, 255).astype(np.uint8)
         # depth_color = cv2.applyColorMap(depth_i, cv2.COLORMAP_JET)
 
-        depth_color = VISUils.apply_depth_colormap(out["plane_depth"][0,...,None], mask[0,...,None]).detach()
+        depth_color = VISUils.apply_depth_colormap(out["plane_depth"][0,...,None], mask[0,...,None], near_plane=1.5).detach()
         torchvision.utils.save_image(depth_color.permute(2,0,1), os.path.join(render_depth_path, view.image_name + ".jpg"))
 
         # plane depth
-        depth2plane_color = VISUils.apply_depth_colormap(out["rendered_distance"][0,...,None], mask[0,...,None]).detach()
+        depth2plane_color = VISUils.apply_depth_colormap(out["rendered_distance"][0,...,None], mask[0,...,None], near_plane=1.5).detach()
         torchvision.utils.save_image(depth2plane_color.permute(2,0,1), os.path.join(render_depth2plane_path, view.image_name + ".jpg"))
         
         # normal
@@ -131,9 +131,9 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
             view_dir = torch.nn.functional.normalize(view.get_rays(), p=2, dim=-1)
             depth_normal = out["depth_normal"].permute(1,2,0)
             depth_normal = torch.nn.functional.normalize(depth_normal, p=2, dim=-1)
-            dot = torch.sum(view_dir*depth_normal, dim=-1)
+            dot = torch.sum(view_dir*depth_normal, dim=-1).abs()
             angle = torch.acos(dot)
-            mask = angle > (100.0 / 180 * 3.14159)
+            mask = angle > (80.0 / 180 * 3.14159)
             depth_tsdf[mask] = 0
         depths_tsdf_fusion.append(depth_tsdf.squeeze())
         
@@ -141,56 +141,9 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
         depths_tsdf_fusion = torch.stack(depths_tsdf_fusion, dim=0)
         for idx, view in enumerate(tqdm(views, desc="TSDF Fusion progress")):
             ref_depth = depths_tsdf_fusion[idx]
-            if use_depth_filter and len(view.nearest_id) > 2:
-                nearest_world_view_transforms = scene.world_view_transforms[view.nearest_id]
-                num_n = nearest_world_view_transforms.shape[0]
-                ## compute geometry consistency mask
-                H, W = ref_depth.squeeze().shape
 
-                ix, iy = torch.meshgrid(
-                    torch.arange(W), torch.arange(H), indexing='xy')
-                pixels = torch.stack([ix, iy], dim=-1).float().to(out['plane_depth'].device)
-
-                pts = gaussians.get_points_from_depth(view, ref_depth)
-                pts_in_nearest_cam = torch.matmul(nearest_world_view_transforms[:,None,:3,:3].expand(num_n,H*W,3,3).transpose(-1,-2), 
-                                                  pts[None,:,:,None].expand(num_n,H*W,3,1))[...,0] + nearest_world_view_transforms[:,None,3,:3] # b, pts, 3
-
-                depths_nearest = depths_tsdf_fusion[view.nearest_id][:,None]
-                pts_projections = torch.stack(
-                                [pts_in_nearest_cam[...,0] * view.Fx / pts_in_nearest_cam[...,2] + view.Cx,
-                                pts_in_nearest_cam[...,1] * view.Fy / pts_in_nearest_cam[...,2] + view.Cy], -1).float()
-                d_mask = (pts_projections[..., 0] > 0) & (pts_projections[..., 0] < view.image_width) &\
-                         (pts_projections[..., 1] > 0) & (pts_projections[..., 1] < view.image_height)
-
-                pts_projections[..., 0] /= ((view.image_width - 1) / 2)
-                pts_projections[..., 1] /= ((view.image_height - 1) / 2)
-                pts_projections -= 1
-                pts_projections = pts_projections.view(num_n, -1, 1, 2)
-                map_z = torch.nn.functional.grid_sample(input=depths_nearest,
-                                                        grid=pts_projections,
-                                                        mode='bilinear',
-                                                        padding_mode='border',
-                                                        align_corners=True
-                                                        )[:,0,:,0]
-                
-                pts_in_nearest_cam[...,0] = pts_in_nearest_cam[...,0]/pts_in_nearest_cam[...,2]*map_z.squeeze()
-                pts_in_nearest_cam[...,1] = pts_in_nearest_cam[...,1]/pts_in_nearest_cam[...,2]*map_z.squeeze()
-                pts_in_nearest_cam[...,2] = map_z.squeeze()
-                pts_ = (pts_in_nearest_cam-nearest_world_view_transforms[:,None,3,:3])
-                pts_ = torch.matmul(nearest_world_view_transforms[:,None,:3,:3].expand(num_n,H*W,3,3), 
-                                    pts_[:,:,:,None].expand(num_n,H*W,3,1))[...,0]
-
-                pts_in_view_cam = pts_ @ view.world_view_transform[:3,:3] + view.world_view_transform[None,None,3,:3]
-                pts_projections = torch.stack(
-                            [pts_in_view_cam[...,0] * view.Fx / pts_in_view_cam[...,2] + view.Cx,
-                            pts_in_view_cam[...,1] * view.Fy / pts_in_view_cam[...,2] + view.Cy], -1).float()
-                pixel_noise = torch.norm(pts_projections.reshape(num_n, H, W, 2) - pixels[None], dim=-1)
-                d_mask_all = d_mask.reshape(num_n,H,W) & (pixel_noise < 1.0) & (pts_in_view_cam[...,2].reshape(num_n,H,W) > 0.1)
-                d_mask_all = (d_mask_all.sum(0) > 1)
-                ref_depth[~d_mask_all] = 0
-
-            # if view.mask is not None:
-            #     ref_depth[view.mask] = 0
+            if view.mask is not None:
+                ref_depth[view.mask.squeeze() < 0.5] = 0
             # else:
             #     ref_depth[ref_depth>max_depth] = 0
 
@@ -211,7 +164,7 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
                 pose)
 
 def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool,
-                 max_depth : float, voxel_size : float, use_depth_filter : bool):
+                 max_depth : float, voxel_size : float, sdf_trunc : float, num_cluster: int, use_depth_filter : bool):
     with torch.no_grad():
         gaussians = GaussianModel(dataset.sh_degree)
         scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False)
@@ -223,9 +176,10 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
         bg_color = [1,1,1] if dataset.white_background else [0, 0, 0]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
         print(f"TSDF voxel_size {voxel_size}")
+        sdf_trunc_ = 5.0 * voxel_size if sdf_trunc < 0 else sdf_trunc
         volume = o3d.pipelines.integration.ScalableTSDFVolume(
             voxel_length=voxel_size,
-            sdf_trunc=0.016,
+            sdf_trunc=sdf_trunc_,
             color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8)
 
         if not skip_train:
@@ -238,12 +192,12 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
             path = os.path.join(dataset.model_path, "mesh")
             os.makedirs(path, exist_ok=True)
             
-            o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion_womask.ply"), mesh, 
+            o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion_wmask.ply"), mesh, 
                                        write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
             
             # post-processing code of 2dgs
-            mesh_post = post_process_mesh(mesh, cluster_to_keep=1)
-            o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion_womask_post.ply"), mesh_post, 
+            mesh_post = post_process_mesh(mesh, cluster_to_keep = num_cluster)
+            o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion_wmask_post.ply"), mesh_post, 
                                        write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
 
         if not skip_test:
@@ -259,8 +213,10 @@ if __name__ == "__main__":
     parser.add_argument("--skip_train", action="store_true")
     parser.add_argument("--skip_test", action="store_true")
     parser.add_argument("--quiet", action="store_true")
-    parser.add_argument("--max_depth", default=3.0, type=float)
+    parser.add_argument("--max_depth", default=5.0, type=float)
     parser.add_argument("--voxel_size", default=0.002, type=float)
+    parser.add_argument("--sdf_trunc", default=-1.0, type=float)
+    parser.add_argument("--num_cluster", default=1, type=int)
     parser.add_argument("--use_depth_filter", action="store_true")
 
     args = get_combined_args(parser)
@@ -268,4 +224,4 @@ if __name__ == "__main__":
 
     # Initialize system state (RNG)
     safe_state(args.quiet)
-    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.max_depth, args.voxel_size, args.use_depth_filter)
+    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.max_depth, args.voxel_size, args.sdf_trunc, args.num_cluster, args.use_depth_filter)

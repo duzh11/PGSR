@@ -20,7 +20,7 @@ import open3d as o3d
 import trimesh
 from utils.depth_utils import depth_to_normal
 
-def post_process_mesh(mesh, cluster_to_keep=1000):
+def post_process_mesh(mesh, cluster_to_keep=1):
     """
     Post-process a mesh to filter out floaters and disconnected parts
     """

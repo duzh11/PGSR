@@ -140,7 +140,7 @@ def cull_scan(scan, mesh_path, result_mesh_file, instance_dir):
 
     # load mesh
     mesh = trimesh.load(mesh_path)
-    mesh_origin = mesh.copy()
+    # mesh_origin = mesh.copy()
     
     # load transformation matrix
 
@@ -194,9 +194,9 @@ def cull_scan(scan, mesh_path, result_mesh_file, instance_dir):
     del mesh
 
     # transfrom mesh_origin to world
-    mesh_origin.vertices = mesh_origin.vertices * scale_mat[0, 0] + scale_mat[:3, 3][None]
-    mesh_origin.export(result_mesh_file.split('culled.ply')[0] + 'aligned.ply')
-    del mesh_origin
+    # mesh_origin.vertices = mesh_origin.vertices * scale_mat[0, 0] + scale_mat[:3, 3][None]
+    # mesh_origin.export(result_mesh_file.split('culled.ply')[0] + 'aligned.ply')
+    # del mesh_origin
 
 def evaluate_mesh(dataset : ModelParams, iteration : int, DTU_PATH : str):
     
@@ -228,10 +228,10 @@ def evaluate_mesh(dataset : ModelParams, iteration : int, DTU_PATH : str):
     # load mesh
     # mesh_file = os.path.join(dataset.model_path, "test/ours_{}".format(iteration), mesh_dir, filename)
     # todo TSDF fusion w/o mask
-    mesh_file = os.path.join(dataset.model_path, "mesh/tsdf_fusion_womask_post.ply")
+    mesh_file = os.path.join(dataset.model_path, "mesh/tsdf_fusion_wmask_post.ply")
 
     print("cull mesh ....")
-    result_mesh_file = os.path.join(dataset.model_path, "mesh/tsdf_fusion_womask_post_culled.ply")
+    result_mesh_file = os.path.join(dataset.model_path, "mesh/tsdf_fusion_wmask_post_culled.ply")
     cull_scan(scan, mesh_file, result_mesh_file, instance_dir=dataset.source_path)
         
     # evaluate
@@ -243,10 +243,10 @@ def evaluate_mesh(dataset : ModelParams, iteration : int, DTU_PATH : str):
     print(cmd)
     os.system(cmd)
 
-    origin_mesh_file = result_mesh_file.split('culled.ply')[0] + 'aligned.ply'
-    cmd = f"python scripts/dtu_eval/dtu_eval.py --data {origin_mesh_file} --scan {scan} --mode mesh --dataset_dir {DTU_PATH} --vis_out_dir {out_dir} --suffix_name womask"
-    print(cmd)
-    os.system(cmd) 
+    # origin_mesh_file = result_mesh_file.split('culled.ply')[0] + 'aligned.ply'
+    # cmd = f"python scripts/dtu_eval/dtu_eval.py --data {origin_mesh_file} --scan {scan} --mode mesh --dataset_dir {DTU_PATH} --vis_out_dir {out_dir} --suffix_name womask"
+    # print(cmd)
+    # os.system(cmd) 
     
 if __name__ == "__main__":
     # Set up command line argument parser

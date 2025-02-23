@@ -28,15 +28,27 @@ from scene.app_model import AppModel
 import copy
 from collections import deque
 
-def clean_mesh(mesh, min_len=1000):
+def post_process_mesh(mesh, cluster_to_keep=1):
+    """
+    Post-process a mesh to filter out floaters and disconnected parts
+    """
+    import copy
+    print("post processing the mesh to have {} clusterscluster_to_kep".format(cluster_to_keep))
+    mesh_0 = copy.deepcopy(mesh)
     with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Debug) as cm:
-        triangle_clusters, cluster_n_triangles, cluster_area = (mesh.cluster_connected_triangles())
+            triangle_clusters, cluster_n_triangles, cluster_area = (mesh_0.cluster_connected_triangles())
+
     triangle_clusters = np.asarray(triangle_clusters)
     cluster_n_triangles = np.asarray(cluster_n_triangles)
     cluster_area = np.asarray(cluster_area)
-    triangles_to_remove = cluster_n_triangles[triangle_clusters] < min_len
-    mesh_0 = copy.deepcopy(mesh)
+    n_cluster = np.sort(cluster_n_triangles.copy())[-cluster_to_keep]
+    n_cluster = max(n_cluster, 50) # filter meshes smaller than 50
+    triangles_to_remove = cluster_n_triangles[triangle_clusters] < n_cluster
     mesh_0.remove_triangles_by_mask(triangles_to_remove)
+    mesh_0.remove_unreferenced_vertices()
+    mesh_0.remove_degenerate_triangles()
+    print("num vertices raw {}".format(len(mesh.vertices)))
+    print("num vertices post {}".format(len(mesh_0.vertices)))
     return mesh_0
 
 def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, background, 
@@ -85,9 +97,9 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
             view_dir = torch.nn.functional.normalize(view.get_rays(), p=2, dim=-1)
             depth_normal = out["depth_normal"].permute(1,2,0)
             depth_normal = torch.nn.functional.normalize(depth_normal, p=2, dim=-1)
-            dot = torch.sum(view_dir*depth_normal, dim=-1)
+            dot = torch.sum(view_dir*depth_normal, dim=-1).abs()
             angle = torch.acos(dot)
-            mask = angle > (100.0 / 180 * 3.14159)
+            mask = angle > (80.0 / 180 * 3.14159)
             depth_tsdf[mask] = 0
         depths_tsdf_fusion.append(depth_tsdf.squeeze())
         
@@ -160,7 +172,7 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
                 pose)
 
 def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool,
-                 max_depth : float, voxel_size : float, use_depth_filter : bool):
+                 max_depth : float, voxel_size : float, num_cluster: int, use_depth_filter : bool):
     with torch.no_grad():
         gaussians = GaussianModel(dataset.sh_degree)
         scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False)
@@ -188,9 +200,7 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
             
             o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion.ply"), mesh, 
                                        write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
-            mesh = clean_mesh(mesh)
-            mesh.remove_unreferenced_vertices()
-            mesh.remove_degenerate_triangles()
+            mesh = post_process_mesh(mesh, cluster_to_keep = num_cluster)
             o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion_post.ply"), mesh, 
                                        write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
 
@@ -209,6 +219,7 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--max_depth", default=5.0, type=float)
     parser.add_argument("--voxel_size", default=0.002, type=float)
+    parser.add_argument("--num_cluster", default=1, type=int)
     parser.add_argument("--use_depth_filter", action="store_true")
 
     args = get_combined_args(parser)
@@ -217,4 +228,4 @@ if __name__ == "__main__":
     # Initialize system state (RNG)
     safe_state(args.quiet)
     print(f"multi_view_num {model.multi_view_num}")
-    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.max_depth, args.voxel_size, args.use_depth_filter)
+    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.max_depth, args.voxel_size, args.num_cluster, args.use_depth_filter)
